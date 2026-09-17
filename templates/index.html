@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shepmule Digital Books</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div><h1>Shepmule Digital Books</h1><p>Invoices, quotations, receipts, delivery notes and cash sales</p></div>
+  <div class="top-actions"><span class="user-pill">{{ current_user.username }}</span><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary" type="submit">Log out</button></form></div>
+</header>
+<main>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+{% endwith %}
+<section class="card">
+<div class="card-head"><div><h2>Create Document</h2><p>Each generated document is one A4 page.</p></div></div>
+<form method="post" id="docForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="grid three">
+<label>Document Type
+<select name="doc_type" id="docType">
+<option value="invoice">Invoice</option><option value="quotation">Quotation</option><option value="receipt">Receipt</option><option value="delivery_note">Delivery Note</option><option value="cash_sale">Cash Sale</option>
+</select></label>
+<label>Document No.<input name="number" placeholder="e.g. INV-0001" required></label>
+<label>Date<input type="date" name="date" value="{{ today }}" required></label>
+<label>Customer / M/s<input name="customer" placeholder="Customer name"></label>
+</div>
+
+<div id="standardFields">
+<div class="section-title">Items</div>
+<div class="items-head"><span>Description</span><span>Qty</span><span>Unit Price (ZMW)</span><span></span></div>
+<div id="items"></div>
+<button type="button" class="secondary" id="addItem">+ Add Item</button>
+
+<div class="section-title">Document Details</div>
+<div class="grid three">
+<label>Prepared By<input name="prepared_by" placeholder="Name"></label>
+<label>Signature<input name="prepared_signature" placeholder="Signature"></label>
+<label>Terms of Payment<input name="terms" placeholder="e.g. 50% Deposit, Balance on Delivery"></label>
+<label>Validity<input name="validity" placeholder="e.g. 30 days"></label>
+<label>Delivery Period<input name="delivery_period" placeholder="e.g. 3 working days"></label>
+<label>Received By<input name="received_by" placeholder="Name"></label>
+<label>Received Signature<input name="received_signature" placeholder="Signature"></label>
+<label id="vatWrap">VAT %<input name="vat" id="vat" type="number" step="0.01" value="16"></label>
+<label id="deliveredWrap" class="hidden">Delivered By<input name="delivered_by" placeholder="Name"></label>
+<label id="deliveredSigWrap" class="hidden">Delivered Signature<input name="delivered_signature" placeholder="Signature"></label>
+</div>
+<div class="totals-preview"><div><span>Subtotal</span><strong id="sub">0.00</strong></div><div><span>VAT</span><strong id="tax">0.00</strong></div><div class="grand"><span>Grand Total</span><strong id="grand">0.00 ZMW</strong></div></div>
+</div>
+
+<div id="receiptFields" class="hidden">
+<div class="section-title">Receipt Information</div>
+<div class="grid two">
+<label>Received From<input name="received_from" placeholder="Person / company"></label>
+<label>Towards<input name="towards" placeholder="Payment purpose"></label>
+<label>Amount in Words<input name="amount_words" placeholder="Amount in words"></label>
+<label>Payment Method<select name="payment_method"><option>Cash</option><option>TFT</option><option>Cheque</option></select></label>
+<label>Amount (ZMW)<input name="receipt_total" id="receiptTotal" type="number" step="0.01" value="0"></label>
+<label>Received Signature<input name="received_signature" placeholder="Signature"></label>
+</div>
+</div>
+
+<div class="bank-preview" id="bankPreview"><div><b>Bank Details</b><span>ZANACO · {{ company.account_number }} · {{ company.branch }} · Sort {{ company.sort_code }} · Branch {{ company.branch_code }} · SWIFT {{ company.swift }}</span></div></div>
+<button class="primary" type="submit">Generate One-Page PDF</button>
+</form>
+</section>
+
+<section class="card">
+<div class="card-head"><h2>Recent Documents</h2></div>
+<div class="table-wrap"><table><thead><tr><th>Type</th><th>No.</th><th>Customer</th><th>Date</th><th>Total</th><th>PDF</th></tr></thead>
+<tbody>{% for d in docs %}<tr><td>{{ d.doc_type|replace('_',' ')|title }}</td><td>{{ d.number }}</td><td>{{ d.customer }}</td><td>{{ d.doc_date }}</td><td>{{ '%.2f'|format(d.total|float) }} ZMW</td><td><a class="button-link" href="{{ url_for('regenerate_pdf', document_id=d.id) }}">PDF</a></td></tr>{% else %}<tr><td colspan="6" class="muted">No documents generated yet.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+</main>
+<footer>{{ company.name }} · {{ company.cell }} · {{ company.email }}</footer>
+<script>
+const items=document.getElementById('items'), vat=document.getElementById('vat'), docType=document.getElementById('docType');
+function addRow(description='',qty='1',unit='0'){
+ const row=document.createElement('div'); row.className='item-row';
+ row.innerHTML=`<input name="description[]" placeholder="Item description" value="${description}"><input name="qty[]" type="number" step="0.01" min="0" value="${qty}"><input name="unit[]" type="number" step="0.01" min="0" value="${unit}"><button type="button" class="remove">×</button>`;
+ items.appendChild(row); row.querySelectorAll('input').forEach(e=>e.addEventListener('input',calculate)); row.querySelector('.remove').addEventListener('click',()=>{row.remove();calculate()}); calculate();
+}
+function calculate(){let subtotal=0;document.querySelectorAll('.item-row').forEach(r=>subtotal+=(parseFloat(r.querySelector('[name="qty[]"]').value)||0)*(parseFloat(r.querySelector('[name="unit[]"]').value)||0));const rate=parseFloat(vat.value)||0,tax=subtotal*rate/100;document.getElementById('sub').textContent=subtotal.toFixed(2);document.getElementById('tax').textContent=tax.toFixed(2);document.getElementById('grand').textContent=(subtotal+tax).toFixed(2)+' ZMW';}
+function toggle(){const t=docType.value,receipt=t==='receipt',delivery=t==='delivery_note',cash=t==='cash_sale';document.getElementById('standardFields').classList.toggle('hidden',receipt);document.getElementById('receiptFields').classList.toggle('hidden',!receipt);document.getElementById('vatWrap').classList.toggle('hidden',delivery||cash);document.getElementById('deliveredWrap').classList.toggle('hidden',!delivery);document.getElementById('deliveredSigWrap').classList.toggle('hidden',!delivery);document.getElementById('bankPreview').classList.toggle('hidden',receipt||delivery||cash);}
+document.getElementById('addItem').addEventListener('click',()=>addRow());vat.addEventListener('input',calculate);docType.addEventListener('change',toggle);addRow();toggle();
+</script>
+</body></html>
